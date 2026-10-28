@@ -135,10 +135,8 @@ class ImageDownloader:
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
                     # Determine referer based on image URL
-                    if "komik.im" in url or "softkomik" in url:
-                        referer = "https://softkomik.co/"
-                    else:
-                        referer = "https://app.shinigami.asia/"
+                    from .sources import registry
+                    referer = registry.get_referer_for_url(url)
 
                     headers = {
                         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
@@ -192,7 +190,7 @@ class ImageDownloader:
             manga_info: Manga information dict from API
             chapters_to_download: List of chapter dicts to download
             delay_between_chapters: Delay between chapters in seconds
-            api: Optional API client instance (ShinigamiAPI or SoftkomikAPI)
+            api: Optional API client instance
             
         Returns:
             Dict with download statistics
@@ -205,17 +203,14 @@ class ImageDownloader:
         
         logger.info(f"Starting batch download: {len(chapters_to_download)} chapters")
         
-        # Determine API client
+        # Determine API client dynamically from registry
         if api is not None:
             active_api = api
             owns_session = False
-        elif str(manga_info.get('source', '')).lower() == 'softkomik':
-            from .softkomik_client import SoftkomikAPI
-            active_api = SoftkomikAPI()
-            owns_session = True
         else:
-            from .api_client import ShinigamiAPI
-            active_api = ShinigamiAPI()
+            from .sources import registry
+            source_key = str(manga_info.get('source_key') or manga_info.get('source', '')).lower()
+            active_api = registry.get(source_key) or registry.get('shinigami')
             owns_session = True
         
         try:

@@ -88,9 +88,6 @@ def format_image_number(image_num: int, total_images: int) -> str:
     return str(image_num).zfill(padding)
 
 
-UUID_REGEX = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
-
-
 def parse_target_input(raw_input: str) -> dict:
     """
     Parse input string to determine query, source hint, and whether it's a direct ID or search query.
@@ -98,48 +95,16 @@ def parse_target_input(raw_input: str) -> dict:
     Returns:
         dict with:
             - query: normalized search query or comic ID
-            - source: 'shinigami' | 'softkomik' | None (None means search all)
+            - source: source slug | None (None means search all)
             - is_direct_id: bool (True if explicit ID/URL/slug, False if search query)
     """
-    cleaned = raw_input.strip()
-
-    # 1. Softkomik URL
-    if 'softkomik' in cleaned.lower():
-        match_ch = re.search(r'softkomik\.(?:co|app)/([^/?#]+)/chapter/([^/?#]+)', cleaned, re.IGNORECASE)
-        if match_ch:
-            return {"query": match_ch.group(1), "source": "softkomik", "is_direct_id": True}
-        match = re.search(r'softkomik\.(?:co|app)/([^/?#]+)', cleaned, re.IGNORECASE)
-        if match:
-            slug = match.group(1)
-            if slug == 'komik':
-                name_match = re.search(r'name=([^&#]+)', cleaned)
-                if name_match:
-                    import urllib.parse
-                    return {"query": urllib.parse.unquote_plus(name_match.group(1)), "source": "softkomik", "is_direct_id": False}
-                return {"query": "", "source": "softkomik", "is_direct_id": False}
-            return {"query": slug, "source": "softkomik", "is_direct_id": True}
-
-    # 2. Shinigami URL
-    if 'shinigami' in cleaned.lower():
-        match = re.search(r'/series/([^/?]+)', cleaned)
-        if match:
-            return {"query": match.group(1), "source": "shinigami", "is_direct_id": True}
-
-    # 3. Direct UUID (Shinigami ID)
-    if UUID_REGEX.match(cleaned):
-        return {"query": cleaned, "source": "shinigami", "is_direct_id": True}
-
-    # 4. Direct Softkomik slug (explicitly ends with -bahasa-indonesia)
-    if cleaned.lower().endswith("-bahasa-indonesia"):
-        return {"query": cleaned, "source": "softkomik", "is_direct_id": True}
-
-    # 5. General search query (search across all sources)
-    return {"query": cleaned, "source": None, "is_direct_id": False}
+    from .sources import registry
+    return registry.resolve_input(raw_input)
 
 
 def validate_url(url: str) -> Tuple[bool, Optional[str]]:
     """
-    Validate if URL is a valid Shinigami or Softkomik comic URL, or extract ID/slug
+    Validate if URL is a valid comic URL, ID, or search query
     
     Args:
         url: URL, comic ID, or search query to validate
@@ -147,44 +112,14 @@ def validate_url(url: str) -> Tuple[bool, Optional[str]]:
     Returns:
         Tuple of (is_valid, comic_id/slug or error_message)
     """
-    url = url.strip()
-    
-    # Check if it's a Softkomik URL
-    if 'softkomik' in url.lower():
-        # Chapter URL: https://softkomik.app/{slug}/chapter/{ch}
-        match_ch = re.search(r'softkomik\.(?:co|app)/([^/?#]+)/chapter/([^/?#]+)', url, re.IGNORECASE)
-        if match_ch:
-            return True, match_ch.group(1)
-        # Manga detail URL or search URL
-        match = re.search(r'softkomik\.(?:co|app)/([^/?#]+)', url, re.IGNORECASE)
-        if match:
-            slug = match.group(1)
-            if slug == 'komik':
-                # e.g. /komik/list?name=...
-                name_match = re.search(r'name=([^&#]+)', url)
-                if name_match:
-                    import urllib.parse
-                    return True, urllib.parse.unquote_plus(name_match.group(1))
-                return False, "Gunakan link detail komik atau judul pencarian"
-            return True, slug
-        return False, "Format URL Softkomik tidak valid. Contoh: https://softkomik.app/melting-slowly-bahasa-indonesia"
+    cleaned = url.strip()
+    if not cleaned:
+        return False, "Input cannot be empty!"
 
-    # Check if it's a full Shinigami URL
-    if 'shinigami' in url.lower():
-        # Extract manga ID from URL
-        # Format: https://app.shinigami.asia/series/{manga-id}
-        match = re.search(r'/series/([^/?]+)', url)
-        if match:
-            return True, match.group(1)
-        return False, "Invalid Shinigami URL format. Expected: https://app.shinigami.asia/series/{manga-id}"
-    
-    # Check if it's a direct ID, slug, or search query
-    if url and not any(char in url for char in ['/', '\\', '?', '#']):
-        return True, url
-    
-    # Allow query with spaces
-    if url:
-        return True, url
+    from .sources import registry
+    parsed = registry.resolve_input(cleaned)
+    if parsed.get("query"):
+        return True, parsed["query"]
     
     return False, "Please provide a valid comic URL, ID, or Title"
 

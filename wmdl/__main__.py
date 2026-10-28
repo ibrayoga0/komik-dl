@@ -8,8 +8,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict
 
-from .api_client import ShinigamiAPI
-from .softkomik_client import SoftkomikAPI
+from .sources import registry
 from .downloader import ImageDownloader
 from .utils import (
     validate_url,
@@ -57,7 +56,7 @@ class WMDLApp:
 
         Args:
             query: Comic title or search query
-            source_filter: Optional source filter ('shinigami' or 'softkomik')
+            source_filter: Optional source filter key (e.g., 'shinigami', 'softkomik', 'komiku')
 
         Returns:
             List of comic search results with source tag and relevance score
@@ -66,40 +65,16 @@ class WMDLApp:
         keywords = [w.lower() for w in re.split(r'[\s\-_]+', query) if len(w) > 1]
         norm_query = query.lower().replace('-', ' ')
 
-        async def _search_shinigami():
-            try:
-                async with ShinigamiAPI() as api:
-                    raw = await api.search_manga(query)
-                    filtered = []
-                    for item in raw:
-                        t_lower = item.get('title', '').lower()
-                        m_lower = item.get('manga_id', '').lower()
-                        if not keywords or any(kw in t_lower or kw in m_lower for kw in keywords):
-                            if t_lower == norm_query or t_lower == query.lower():
-                                score = 100
-                            elif keywords and all(kw in t_lower or kw in m_lower for kw in keywords):
-                                score = 50
-                            else:
-                                score = 10
-                            filtered.append({
-                                'title': item.get('title', 'Unknown'),
-                                'manga_id': item.get('manga_id', ''),
-                                'status': item.get('status', 'Unknown'),
-                                'cover': item.get('cover', ''),
-                                'source': 'shinigami',
-                                'source_name': 'Shinigami',
-                                'score': score
-                            })
-                    filtered.sort(key=lambda x: -x['score'])
-                    return filtered[:5]
-            except Exception as e:
-                logger.debug(f"Shinigami search error: {e}")
-                return []
+        if source_filter:
+            target_source = registry.get(source_filter)
+            sources = [target_source] if target_source else []
+        else:
+            sources = registry.get_all()
 
-        async def _search_softkomik():
+        async def _search_source(src):
             try:
-                async with SoftkomikAPI() as api:
-                    raw = await api.search_manga(query)
+                async with src:
+                    raw = await src.search(query)
                     filtered = []
                     for item in raw:
                         t_lower = item.get('title', '').lower()
@@ -116,22 +91,17 @@ class WMDLApp:
                                 'manga_id': item.get('manga_id', ''),
                                 'status': item.get('status', 'Ongoing'),
                                 'cover': item.get('cover', ''),
-                                'source': 'softkomik',
-                                'source_name': 'Softkomik',
+                                'source': src.slug,
+                                'source_name': src.name,
                                 'score': score
                             })
                     filtered.sort(key=lambda x: -x['score'])
                     return filtered[:5]
             except Exception as e:
-                logger.debug(f"Softkomik search error: {e}")
+                logger.debug(f"{src.name} search error: {e}")
                 return []
 
-        tasks = []
-        if source_filter == 'shinigami' or source_filter is None:
-            tasks.append(_search_shinigami())
-        if source_filter == 'softkomik' or source_filter is None:
-            tasks.append(_search_softkomik())
-
+        tasks = [_search_source(src) for src in sources]
         results_lists = await asyncio.gather(*tasks)
         combined = []
         for items in results_lists:
@@ -149,29 +119,20 @@ class WMDLApp:
 
         # 1. Direct ID / Slug / Detail URL
         if parsed['is_direct_id']:
-            source = parsed['source']
+            source_key = parsed['source']
             comic_id = parsed['query']
-            if source == 'softkomik':
+            source = registry.get(source_key)
+            if source:
                 try:
-                    async with SoftkomikAPI() as api:
-                        info = await api.get_manga_info(comic_id)
-                        chapters = await api.get_chapter_list(info['manga_id'])
+                    async with source:
+                        info = await source.get_manga_info(comic_id)
+                        chapters = await source.get_chapter_list(info['manga_id'])
                         info['chapters'] = chapters
-                        info['source'] = 'Softkomik'
+                        info['source'] = source.name
+                        info['source_key'] = source.slug
                         return info
                 except Exception as e:
-                    logger.debug(f"Direct Softkomik fetch failed: {e}")
-                    return None
-            elif source == 'shinigami':
-                try:
-                    async with ShinigamiAPI() as api:
-                        info = await api.get_manga_info(comic_id)
-                        chapters = await api.get_chapter_list(info['manga_id'])
-                        info['chapters'] = chapters
-                        info['source'] = 'Shinigami'
-                        return info
-                except Exception as e:
-                    logger.debug(f"Direct Shinigami fetch failed: {e}")
+                    logger.debug(f"Direct {source.name} fetch failed: {e}")
                     return None
 
         # 2. Search across sources
@@ -216,22 +177,16 @@ class WMDLApp:
                 selected = results[0]
 
         # Fetch full comic details and chapters for selected comic
-        source = selected['source']
+        source_key = selected['source']
         comic_id = selected['manga_id']
-
-        if source == 'softkomik':
-            async with SoftkomikAPI() as api:
-                info = await api.get_manga_info(comic_id)
-                chapters = await api.get_chapter_list(info['manga_id'])
+        source = registry.get(source_key)
+        if source:
+            async with source:
+                info = await source.get_manga_info(comic_id)
+                chapters = await source.get_chapter_list(info['manga_id'])
                 info['chapters'] = chapters
-                info['source'] = 'Softkomik'
-                return info
-        elif source == 'shinigami':
-            async with ShinigamiAPI() as api:
-                info = await api.get_manga_info(comic_id)
-                chapters = await api.get_chapter_list(info['manga_id'])
-                info['chapters'] = chapters
-                info['source'] = 'Shinigami'
+                info['source'] = source.name
+                info['source_key'] = source.slug
                 return info
 
         return None
