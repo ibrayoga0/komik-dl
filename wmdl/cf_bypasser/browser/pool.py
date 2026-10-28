@@ -238,7 +238,7 @@ class BrowserPool:
             slot = BrowserSlot(i, browser)
             self._slots.append(slot)
             self._idle.put_nowait(slot)
-        logging.info(f"Browser pool started with {self._size} browsers")
+        logging.info(f"Browser pool started with {self._size} browser{'s' if self._size != 1 else ''}")
 
     @asynccontextmanager
     async def lease(self) -> AsyncIterator[BrowserSlot]:

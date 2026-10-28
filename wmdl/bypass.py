@@ -55,7 +55,8 @@ def is_cloudflare_challenge(status: int, text: str, headers: Optional[dict] = No
 
 
 def _setup_browser_path():
-    """Ensure CF_BROWSER_PATH is set if not already defined"""
+    """Ensure CF_BROWSER_PATH and CF_BROWSERS are set if not already defined"""
+    os.environ.setdefault("CF_BROWSERS", "1")
     if "CF_BROWSER_PATH" not in os.environ or not os.path.exists(os.environ["CF_BROWSER_PATH"]):
         for path in WINDOWS_BROWSER_CANDIDATES:
             if os.path.exists(path):
@@ -90,11 +91,14 @@ class CloudflareBypasser:
     async def _get_local_bypasser(self):
         """Lazily initialize CFBypasser from clv package"""
         if self._bypasser is None:
-            # Ensure clv is in sys.path
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # Prefer embedded wmdl/cf_bypasser, fallback to clv
+            wmdl_dir = os.path.dirname(os.path.abspath(__file__))
+            if wmdl_dir not in sys.path:
+                sys.path.insert(0, wmdl_dir)
+            base_dir = os.path.dirname(wmdl_dir)
             clv_dir = os.path.join(base_dir, "clv")
             if clv_dir not in sys.path and os.path.exists(clv_dir):
-                sys.path.insert(0, clv_dir)
+                sys.path.append(clv_dir)
 
             _setup_browser_path()
 
