@@ -6,11 +6,11 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 build/
 develop-eggs/
 dist/
-downloads/
 eggs/
 .eggs/
 lib/
@@ -36,5 +36,8 @@ Thumbs.db
 
 # Project specific
 downloads/
+shinigami-api/
+.agent/
+.agents/
 debug_screenshot.png
 *.log
