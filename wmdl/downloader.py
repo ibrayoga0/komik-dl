@@ -6,8 +6,8 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import List, Optional
-import aiohttp
-from tqdm import tqdm
+import aiohttp  # type: ignore[import-untyped,import-not-found]
+from tqdm import tqdm  # type: ignore[import-untyped,import-not-found]
 
 from .config import (
     DEFAULT_DOWNLOAD_DIR,
@@ -209,7 +209,7 @@ class ImageDownloader:
         if api is not None:
             active_api = api
             owns_session = False
-        elif manga_info.get('source') == 'softkomik':
+        elif str(manga_info.get('source', '')).lower() == 'softkomik':
             from .softkomik_client import SoftkomikAPI
             active_api = SoftkomikAPI()
             owns_session = True

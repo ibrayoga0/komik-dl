@@ -10,12 +10,13 @@ import hashlib
 import json
 import logging
 import re
+import importlib
 from typing import List, Dict, Optional
-import aiohttp
+import aiohttp  # type: ignore[import-untyped,import-not-found]
 
 logger = logging.getLogger(__name__)
 
-SOFTKOMIK_BASE_URL = "https://softkomik.co"
+SOFTKOMIK_BASE_URL = "https://softkomik.app"
 SOFTKOMIK_CDN_URL = "https://psy1.komik.im"
 SOFTKOMIK_ENCRYPTION_KEY = "nYTInq9MwR4pWa8yeXtu/2iO3t9nGP65WHpWEvqpEdU="
 
@@ -42,15 +43,28 @@ def _decrypt_stk(encrypted_b64: str, password: str = SOFTKOMIK_ENCRYPTION_KEY) -
 
         key, iv = _evp_bytes_to_key(password.encode("utf-8"), salt, 32, 16)
 
+        decrypted = None
+        # Try PyCryptodome / pycryptodomex first
         try:
-            from Cryptodome.Cipher import AES
-            cipher = AES.new(key, AES.MODE_CBC, iv)
+            aes_mod = importlib.import_module("Cryptodome.Cipher.AES")
+            cipher = aes_mod.new(key, aes_mod.MODE_CBC, iv)
             decrypted = cipher.decrypt(ciphertext)
-        except ImportError:
-            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-            cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
-            decryptor = cipher.decryptor()
-            decrypted = decryptor.update(ciphertext) + decryptor.finalize()
+        except Exception:
+            pass
+
+        # Fallback to cryptography package
+        if decrypted is None:
+            try:
+                hazmat = importlib.import_module("cryptography.hazmat.primitives.ciphers")
+                cipher = hazmat.Cipher(hazmat.algorithms.AES(key), hazmat.modes.CBC(iv))
+                decryptor = cipher.decryptor()
+                decrypted = decryptor.update(ciphertext) + decryptor.finalize()
+            except Exception:
+                pass
+
+        if decrypted is None:
+            logger.debug("No AES decryption library available (install cryptography or pycryptodomex)")
+            return {}
 
         pad_len = decrypted[-1]
         if pad_len > 16:
@@ -150,11 +164,12 @@ class SoftkomikAPI:
                     slug = item.get("title_slug", "")
                     gambar = item.get("gambar", "")
                     cover = f"{self.cdn_url}/{gambar}" if gambar else ""
+                    raw_status = str(item.get("status", "Ongoing")).strip()
                     results.append({
                         "title": item.get("title", "Unknown"),
                         "manga_id": slug,
                         "cover": cover,
-                        "status": "Ongoing",
+                        "status": raw_status.capitalize() if raw_status else "Ongoing",
                         "source": "softkomik",
                     })
                 return results
@@ -179,10 +194,11 @@ class SoftkomikAPI:
                 title = manga_data.get("title", normalized_slug.replace("-bahasa-indonesia", "").replace("-", " ").title())
                 gambar = manga_data.get("gambar", "")
                 cover = f"{self.cdn_url}/{gambar}" if gambar else ""
+                raw_status = str(manga_data.get("status", "Ongoing")).strip()
                 
                 return {
                     "title": title,
-                    "status": "Ongoing",
+                    "status": raw_status.capitalize() if raw_status else "Ongoing",
                     "description": manga_data.get("sinopsis", ""),
                     "cover": cover,
                     "manga_id": normalized_slug,

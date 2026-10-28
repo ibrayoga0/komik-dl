@@ -13,6 +13,7 @@ from .softkomik_client import SoftkomikAPI
 from .downloader import ImageDownloader
 from .utils import (
     validate_url,
+    parse_target_input,
     parse_chapter_range,
     setup_logging,
     sanitize_filename
@@ -20,6 +21,19 @@ from .utils import (
 from .config import DEFAULT_DOWNLOAD_DIR
 
 logger = logging.getLogger(__name__)
+
+
+class CancelledError(Exception):
+    """Raised when user cancels comic selection"""
+    pass
+
+
+def print_banner():
+    """Print clean CLI banner"""
+    print("+----------------------------------------------------------+")
+    print("|                     KOMIK DOWNLOADER                     |")
+    print("+----------------------------------------------------------+")
+    print()
 
 
 class WMDLApp:
@@ -36,169 +50,233 @@ class WMDLApp:
         setup_logging(verbose)
         self.download_dir = download_dir or DEFAULT_DOWNLOAD_DIR
         self.downloader = ImageDownloader(self.download_dir)
-    
-    async def _resolve_manga(self, api, query: str, interactive: bool = False) -> Optional[Dict]:
-        """
-        Resolve manga by ID or search
-        
-        Args:
-            api: API instance (ShinigamiAPI or SoftkomikAPI)
-            query: Manga ID or search query
-            interactive: Whether to ask user for selection
-            
-        Returns:
-            Manga info dict or None
-        """
-        # 1. Try direct ID fetch
-        try:
-            manga_info = await api.get_manga_info(query)
-            return manga_info
-        except:
-            # Not a valid ID, try search
-            logger.debug(f"ID fetch failed for '{query}', trying search...")
-        
-        # 2. Search
-        try:
-            raw_results = await api.search_manga(query)
-            
-            if not raw_results:
-                return None
-            
-            # Filter results so that at least one significant keyword appears in title or manga_id
-            import re
-            keywords = [w.lower() for w in re.split(r'[\s\-_]+', query) if len(w) > 1]
-            results = []
-            for manga in raw_results:
-                title_lower = manga.get('title', '').lower()
-                manga_id_lower = manga.get('manga_id', '').lower()
-                if not keywords or any(kw in title_lower or kw in manga_id_lower for kw in keywords):
-                    results.append(manga)
-            
-            if not results:
-                logger.debug(f"No relevant search results for '{query}' after keyword filter")
-                return None
-            
-            if len(results) == 1:
-                # Only 1 result, use it
-                return await api.get_manga_info(results[0]['manga_id'])
-            
-            # Multiple results
-            if interactive:
-                print(f"\nMultiple results found for '{query}':")
-                for i, manga in enumerate(results[:5], 1):
-                    print(f"  {i}. {manga['title']} ({manga['status']})")
-                print()
-                
-                while True:
-                    choice = input(f"Select manga (1-{len(results[:5])}, or 0 to cancel): ").strip()
-                    if choice == '0':
-                        return None
-                    try:
-                        idx = int(choice) - 1
-                        if 0 <= idx < len(results[:5]):
-                            return await api.get_manga_info(results[idx]['manga_id'])
-                    except ValueError:
-                        pass
-                    print("Invalid selection!")
-            else:
-                # Direct mode: Try exact match or fail
-                # Normalize query (replace hyphens with spaces) and lowercase
-                norm_query = query.lower().replace('-', ' ')
-                
-                for manga in results:
-                    norm_title = manga['title'].lower()
-                    # Check for exact match, slug match, or query contained in title
-                    if norm_title == norm_query or norm_title == query.lower() or norm_query in norm_title:
-                         return await api.get_manga_info(manga['manga_id'])
-                
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error resolving manga: {e}")
-            return None
 
-    async def _fetch_manga_and_chapters(self, query: str, is_softkomik_hint: bool, interactive: bool) -> Optional[Dict]:
-        """Resolve manga and fetch chapters from Softkomik or Shinigami"""
-        if is_softkomik_hint:
+    async def _search_all_sources(self, query: str, source_filter: Optional[str] = None) -> list:
+        """
+        Search comics across all registered sources concurrently
+
+        Args:
+            query: Comic title or search query
+            source_filter: Optional source filter ('shinigami' or 'softkomik')
+
+        Returns:
+            List of comic search results with source tag and relevance score
+        """
+        import re
+        keywords = [w.lower() for w in re.split(r'[\s\-_]+', query) if len(w) > 1]
+        norm_query = query.lower().replace('-', ' ')
+
+        async def _search_shinigami():
+            try:
+                async with ShinigamiAPI() as api:
+                    raw = await api.search_manga(query)
+                    filtered = []
+                    for item in raw:
+                        t_lower = item.get('title', '').lower()
+                        m_lower = item.get('manga_id', '').lower()
+                        if not keywords or any(kw in t_lower or kw in m_lower for kw in keywords):
+                            if t_lower == norm_query or t_lower == query.lower():
+                                score = 100
+                            elif keywords and all(kw in t_lower or kw in m_lower for kw in keywords):
+                                score = 50
+                            else:
+                                score = 10
+                            filtered.append({
+                                'title': item.get('title', 'Unknown'),
+                                'manga_id': item.get('manga_id', ''),
+                                'status': item.get('status', 'Unknown'),
+                                'cover': item.get('cover', ''),
+                                'source': 'shinigami',
+                                'source_name': 'Shinigami',
+                                'score': score
+                            })
+                    filtered.sort(key=lambda x: -x['score'])
+                    return filtered[:5]
+            except Exception as e:
+                logger.debug(f"Shinigami search error: {e}")
+                return []
+
+        async def _search_softkomik():
             try:
                 async with SoftkomikAPI() as api:
-                    info = await self._resolve_manga(api, query, interactive=interactive)
-                    if info:
+                    raw = await api.search_manga(query)
+                    filtered = []
+                    for item in raw:
+                        t_lower = item.get('title', '').lower()
+                        m_lower = item.get('manga_id', '').lower()
+                        if not keywords or any(kw in t_lower or kw in m_lower for kw in keywords):
+                            if t_lower == norm_query or t_lower == query.lower():
+                                score = 100
+                            elif keywords and all(kw in t_lower or kw in m_lower for kw in keywords):
+                                score = 50
+                            else:
+                                score = 10
+                            filtered.append({
+                                'title': item.get('title', 'Unknown'),
+                                'manga_id': item.get('manga_id', ''),
+                                'status': item.get('status', 'Ongoing'),
+                                'cover': item.get('cover', ''),
+                                'source': 'softkomik',
+                                'source_name': 'Softkomik',
+                                'score': score
+                            })
+                    filtered.sort(key=lambda x: -x['score'])
+                    return filtered[:5]
+            except Exception as e:
+                logger.debug(f"Softkomik search error: {e}")
+                return []
+
+        tasks = []
+        if source_filter == 'shinigami' or source_filter is None:
+            tasks.append(_search_shinigami())
+        if source_filter == 'softkomik' or source_filter is None:
+            tasks.append(_search_softkomik())
+
+        results_lists = await asyncio.gather(*tasks)
+        combined = []
+        for items in results_lists:
+            combined.extend(items)
+
+        # Stable sort so higher scores come first, keeping relative source order
+        combined.sort(key=lambda x: -x['score'])
+        return combined
+
+    async def _fetch_comic_and_chapters(self, target_input: str, interactive: bool = False) -> Optional[Dict]:
+        """
+        Resolve comic and fetch chapters from detected source or multi-source search
+        """
+        parsed = parse_target_input(target_input)
+
+        # 1. Direct ID / Slug / Detail URL
+        if parsed['is_direct_id']:
+            source = parsed['source']
+            comic_id = parsed['query']
+            if source == 'softkomik':
+                try:
+                    async with SoftkomikAPI() as api:
+                        info = await api.get_manga_info(comic_id)
                         chapters = await api.get_chapter_list(info['manga_id'])
                         info['chapters'] = chapters
-                        info['source'] = 'softkomik'
+                        info['source'] = 'Softkomik'
                         return info
-            except Exception as e:
-                logger.debug(f"Softkomik fetch error: {e}")
+                except Exception as e:
+                    logger.debug(f"Direct Softkomik fetch failed: {e}")
+                    return None
+            elif source == 'shinigami':
+                try:
+                    async with ShinigamiAPI() as api:
+                        info = await api.get_manga_info(comic_id)
+                        chapters = await api.get_chapter_list(info['manga_id'])
+                        info['chapters'] = chapters
+                        info['source'] = 'Shinigami'
+                        return info
+                except Exception as e:
+                    logger.debug(f"Direct Shinigami fetch failed: {e}")
+                    return None
+
+        # 2. Search across sources
+        query = parsed['query']
+        source_hint = parsed['source']
+
+        results = await self._search_all_sources(query, source_filter=source_hint)
+
+        if not results:
             return None
 
-        # Try Shinigami first
-        try:
-            async with ShinigamiAPI() as api:
-                info = await self._resolve_manga(api, query, interactive=interactive)
-                if info:
-                    chapters = await api.get_chapter_list(info['manga_id'])
-                    info['chapters'] = chapters
-                    info['source'] = 'shinigami'
-                    return info
-        except Exception as e:
-            logger.debug(f"Shinigami fetch error: {e}")
+        selected = None
+        if len(results) == 1:
+            selected = results[0]
+            if interactive:
+                print(f"Found: [{selected['source_name']}] {selected['title']} ({selected['status']})")
+        elif interactive:
+            print(f"\nMultiple results found for '{query}':")
+            for i, comic in enumerate(results, 1):
+                print(f"  {i}. [{comic['source_name']}] {comic['title']} ({comic['status']})")
+            print()
 
-        # Fallback to Softkomik if Shinigami not found
-        try:
+            while True:
+                choice = input(f"Select comic (1-{len(results)}, or 0 to cancel): ").strip()
+                if choice == '0':
+                    print("Selection cancelled.")
+                    raise CancelledError("User cancelled comic selection")
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(results):
+                        selected = results[idx]
+                        break
+                except ValueError:
+                    pass
+                print("Invalid selection!")
+        else:
+            # Direct / non-interactive mode
+            exact_matches = [c for c in results if c['score'] == 100]
+            if exact_matches:
+                selected = exact_matches[0]
+            else:
+                selected = results[0]
+
+        # Fetch full comic details and chapters for selected comic
+        source = selected['source']
+        comic_id = selected['manga_id']
+
+        if source == 'softkomik':
             async with SoftkomikAPI() as api:
-                info = await self._resolve_manga(api, query, interactive=interactive)
-                if info:
-                    chapters = await api.get_chapter_list(info['manga_id'])
-                    info['chapters'] = chapters
-                    info['source'] = 'softkomik'
-                    return info
-        except Exception as e:
-            logger.debug(f"Softkomik fallback error: {e}")
+                info = await api.get_manga_info(comic_id)
+                chapters = await api.get_chapter_list(info['manga_id'])
+                info['chapters'] = chapters
+                info['source'] = 'Softkomik'
+                return info
+        elif source == 'shinigami':
+            async with ShinigamiAPI() as api:
+                info = await api.get_manga_info(comic_id)
+                chapters = await api.get_chapter_list(info['manga_id'])
+                info['chapters'] = chapters
+                info['source'] = 'Shinigami'
+                return info
 
         return None
 
     async def run_interactive(self):
         """Run in interactive mode"""
-        print("=" * 60)
-        print("Manga Downloader (Shinigami.id & Softkomik.co)")
-        print("=" * 60)
-        print()
+        print_banner()
         
-        # Get comic URL/ID
+        # Get comic URL/ID/Title
         while True:
-            url = input("Paste manga URL, ID, or Title (e.g., 'solo-leveling' or 'melting-slowly'): ").strip()
+            raw_input = input("Paste comic URL, ID, or Title (e.g., 'solo-leveling' or 'melting-slowly'): ").strip()
             
-            if not url:
+            if not raw_input:
                 print("Input cannot be empty!")
                 continue
             
-            is_valid, result = validate_url(url)
+            is_valid, result = validate_url(raw_input)
             
             if is_valid:
-                query = result
+                target = raw_input
                 break
             else:
                 print(f"Error: {result}")
                 print()
         
         print()
-        print("Fetching manga information...")
+        print("Fetching comic information...")
         
-        # Get manga info
-        is_softkomik = 'softkomik' in url.lower() or query.endswith('-bahasa-indonesia')
-        manga_info = await self._fetch_manga_and_chapters(query, is_softkomik, interactive=True)
+        try:
+            manga_info = await self._fetch_comic_and_chapters(target, interactive=True)
+        except CancelledError:
+            return
         
         if not manga_info:
-            print(f"Error: Manga '{query}' not found!")
+            print(f"Error: Comic '{raw_input}' not found!")
             return
         
         if not manga_info.get('chapters'):
-            print("Error: No chapters found for this manga!")
+            print("Error: No chapters found for this comic!")
             return
         
         print()
         print(f"Title: {manga_info['title']}")
+        if manga_info.get('source'):
+            print(f"Source: {manga_info['source']}")
         print(f"Status: {manga_info['status']}")
         print(f"Available chapters: {len(manga_info['chapters'])}")
         print(f"Latest chapter: {manga_info['chapters'][0]['name']}")
@@ -324,9 +402,9 @@ class WMDLApp:
         
         # Show results
         print()
-        print("=" * 60)
+        print("-" * 60)
         print("Download Complete!")
-        print("=" * 60)
+        print("-" * 60)
         print(f"Total chapters: {stats['total']}")
         print(f"Success: {stats['success']}")
         print(f"Failed: {stats['failed']}")
@@ -346,7 +424,7 @@ class WMDLApp:
         Run in direct mode with command arguments
         
         Args:
-            url: Manga URL, ID, or Title
+            url: Comic URL, ID, or Title
             chapter: Single chapter number
             chapters: Chapter range string
             all_chapters: Download all chapters
@@ -357,23 +435,24 @@ class WMDLApp:
             print(f"Error: {result}")
             return
         
-        query = result
+        print("Fetching comic information...")
         
-        print("Fetching manga information...")
-        
-        # Get manga info
-        is_softkomik = 'softkomik' in url.lower() or query.endswith('-bahasa-indonesia')
-        manga_info = await self._fetch_manga_and_chapters(query, is_softkomik, interactive=False)
+        try:
+            manga_info = await self._fetch_comic_and_chapters(url, interactive=False)
+        except CancelledError:
+            return
         
         if not manga_info:
-            print(f"Error: Manga '{query}' not found! Try using the exact ID or URL.")
+            print(f"Error: Comic '{url}' not found! Try using the exact ID or URL.")
             return
 
         if not manga_info.get('chapters'):
-            print("Error: No chapters found for this manga!")
+            print("Error: No chapters found for this comic!")
             return
         
         print(f"Title: {manga_info['title']}")
+        if manga_info.get('source'):
+            print(f"Source: {manga_info['source']}")
         print(f"Available chapters: {len(manga_info['chapters'])}")
         print()
         
@@ -443,9 +522,9 @@ class WMDLApp:
         
         # Show results
         print()
-        print("=" * 60)
+        print("-" * 60)
         print("Download Complete!")
-        print("=" * 60)
+        print("-" * 60)
         print(f"Success: {stats['success']}/{stats['total']}")
         if stats['failed'] > 0:
             print(f"Failed: {stats['failed']}")
@@ -459,32 +538,31 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Manga Downloader - Download manga/manhwa from Shinigami.id & Softkomik.co",
+        description="Komik Downloader - Fast multi-source comic downloader",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Interactive mode
   python -m wmdl
   
-  # Download from Softkomik by URL
-  python -m wmdl https://softkomik.co/melting-slowly-bahasa-indonesia --chapter 0
+  # Download by URL
+  python -m wmdl https://softkomik.app/melting-slowly-bahasa-indonesia --chapter 0
   
-  # Download from Softkomik by Title
+  # Download by Title
   python -m wmdl "Melting Slowly" --chapter 0
   
-  # Download range from Softkomik
-  python -m wmdl "Melting Slowly" --chapters 0-3
+  # Download chapter range
+  python -m wmdl "Solo Leveling" --chapters 1-10
   
-  # Download from Shinigami
-  python -m wmdl "Solo Leveling" --chapter 1
-  python -m wmdl solo-leveling --chapters 1-10
+  # Download all chapters
+  python -m wmdl "Solo Leveling" --all
         """
     )
     
     parser.add_argument(
         'url',
         nargs='?',
-        help='Manga URL, ID, or Title (e.g., solo-leveling or https://softkomik.co/melting-slowly-bahasa-indonesia)'
+        help='Comic URL, ID, or Title (e.g., "Solo Leveling" or "melting-slowly")'
     )
     
     parser.add_argument(

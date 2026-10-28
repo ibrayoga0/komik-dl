@@ -88,26 +88,75 @@ def format_image_number(image_num: int, total_images: int) -> str:
     return str(image_num).zfill(padding)
 
 
+UUID_REGEX = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+
+
+def parse_target_input(raw_input: str) -> dict:
+    """
+    Parse input string to determine query, source hint, and whether it's a direct ID or search query.
+
+    Returns:
+        dict with:
+            - query: normalized search query or comic ID
+            - source: 'shinigami' | 'softkomik' | None (None means search all)
+            - is_direct_id: bool (True if explicit ID/URL/slug, False if search query)
+    """
+    cleaned = raw_input.strip()
+
+    # 1. Softkomik URL
+    if 'softkomik' in cleaned.lower():
+        match_ch = re.search(r'softkomik\.(?:co|app)/([^/?#]+)/chapter/([^/?#]+)', cleaned, re.IGNORECASE)
+        if match_ch:
+            return {"query": match_ch.group(1), "source": "softkomik", "is_direct_id": True}
+        match = re.search(r'softkomik\.(?:co|app)/([^/?#]+)', cleaned, re.IGNORECASE)
+        if match:
+            slug = match.group(1)
+            if slug == 'komik':
+                name_match = re.search(r'name=([^&#]+)', cleaned)
+                if name_match:
+                    import urllib.parse
+                    return {"query": urllib.parse.unquote_plus(name_match.group(1)), "source": "softkomik", "is_direct_id": False}
+                return {"query": "", "source": "softkomik", "is_direct_id": False}
+            return {"query": slug, "source": "softkomik", "is_direct_id": True}
+
+    # 2. Shinigami URL
+    if 'shinigami' in cleaned.lower():
+        match = re.search(r'/series/([^/?]+)', cleaned)
+        if match:
+            return {"query": match.group(1), "source": "shinigami", "is_direct_id": True}
+
+    # 3. Direct UUID (Shinigami ID)
+    if UUID_REGEX.match(cleaned):
+        return {"query": cleaned, "source": "shinigami", "is_direct_id": True}
+
+    # 4. Direct Softkomik slug (explicitly ends with -bahasa-indonesia)
+    if cleaned.lower().endswith("-bahasa-indonesia"):
+        return {"query": cleaned, "source": "softkomik", "is_direct_id": True}
+
+    # 5. General search query (search across all sources)
+    return {"query": cleaned, "source": None, "is_direct_id": False}
+
+
 def validate_url(url: str) -> Tuple[bool, Optional[str]]:
     """
-    Validate if URL is a valid Shinigami or Softkomik manga URL, or extract ID/slug
+    Validate if URL is a valid Shinigami or Softkomik comic URL, or extract ID/slug
     
     Args:
-        url: URL, manga ID, or search query to validate
+        url: URL, comic ID, or search query to validate
         
     Returns:
-        Tuple of (is_valid, manga_id/slug or error_message)
+        Tuple of (is_valid, comic_id/slug or error_message)
     """
     url = url.strip()
     
     # Check if it's a Softkomik URL
     if 'softkomik' in url.lower():
-        # Chapter URL: https://softkomik.co/{slug}/chapter/{ch}
-        match_ch = re.search(r'softkomik\.co/([^/?#]+)/chapter/([^/?#]+)', url)
+        # Chapter URL: https://softkomik.app/{slug}/chapter/{ch}
+        match_ch = re.search(r'softkomik\.(?:co|app)/([^/?#]+)/chapter/([^/?#]+)', url, re.IGNORECASE)
         if match_ch:
             return True, match_ch.group(1)
-        # Manga detail URL: https://softkomik.co/{slug}
-        match = re.search(r'softkomik\.co/([^/?#]+)', url)
+        # Manga detail URL or search URL
+        match = re.search(r'softkomik\.(?:co|app)/([^/?#]+)', url, re.IGNORECASE)
         if match:
             slug = match.group(1)
             if slug == 'komik':
@@ -118,7 +167,7 @@ def validate_url(url: str) -> Tuple[bool, Optional[str]]:
                     return True, urllib.parse.unquote_plus(name_match.group(1))
                 return False, "Gunakan link detail komik atau judul pencarian"
             return True, slug
-        return False, "Format URL Softkomik tidak valid. Contoh: https://softkomik.co/melting-slowly-bahasa-indonesia"
+        return False, "Format URL Softkomik tidak valid. Contoh: https://softkomik.app/melting-slowly-bahasa-indonesia"
 
     # Check if it's a full Shinigami URL
     if 'shinigami' in url.lower():
@@ -137,7 +186,7 @@ def validate_url(url: str) -> Tuple[bool, Optional[str]]:
     if url:
         return True, url
     
-    return False, "Please provide a valid manga URL or manga ID/Title"
+    return False, "Please provide a valid comic URL, ID, or Title"
 
 
 def setup_logging(verbose: bool = False) -> None:

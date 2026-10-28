@@ -1,15 +1,16 @@
-# wmdl
+# wmdl (Komik Downloader)
 
-CLI tool berbasis Python untuk mencari dan mengunduh chapter manga/manhwa dari **Shinigami.id** dan **Softkomik.co** langsung ke komputer tanpa memerlukan browser.
+CLI tool berbasis Python untuk mencari dan mengunduh chapter komik/manhwa dari berbagai sumber (Shinigami, Softkomik, dan sumber lainnya di masa mendatang) langsung ke komputer tanpa memerlukan browser.
 
 ## Fitur
 
-- Mendukung dua sumber: **Shinigami.id** dan **Softkomik.co**.
-- Ekstraksi langsung via API dan SSR data (termasuk auto-decrypt payload `_stk` Softkomik).
-- Tanpa browser dan tanpa akun atau API key.
-- Pilihan download: single chapter, rentang chapter (range), atau seluruh chapter sekaligus.
-- Resume capability: otomatis lewati (skip) gambar yang sudah berhasil diunduh sebelumnya.
-- Retry otomatis jika koneksi gagal atau timeout.
+- **Pencarian Multi-Sumber (Unified Search)**: Cari judul komik secara serentak di semua sumber website dan pilih sumber yang diinginkan dari daftar hasil pencarian.
+- **Dukungan Berbagai Sumber**: Mendukung **Shinigami** serta **Softkomik** (`softkomik.app` & `softkomik.co`).
+- **Ekstraksi Cepat & Otomatis**: Memanfaatkan API dan SSR data (termasuk auto-decrypt payload `_stk` pada Softkomik).
+- **Tanpa Browser & API Key**: Berjalan ringan langsung melalui HTTP/asyncio tanpa headless browser ataupun setup akun.
+- **Fleksibel**: Download single chapter, rentang chapter (`1-10` atau `1,3,5`), atau seluruh chapter sekaligus.
+- **Resume & Skip**: Otomatis melewati gambar yang sudah berhasil diunduh sebelumnya.
+- **Batal Bersih**: Pilihan `0` pada menu seleksi untuk membatalkan proses kapan saja tanpa error.
 
 ## Instalasi
 
@@ -27,43 +28,37 @@ Jalankan perintah berikut di terminal:
 ```bash
 py -m wmdl
 ```
-Masukkan URL komik atau judul pencarian (contoh: `melting slowly` atau `solo-leveling`), lalu pilih nomor komik dan opsi chapter yang ingin diunduh.
+Masukkan URL komik, URL pencarian, ID, atau judul komik (contoh: `solo leveling` atau `melting slowly`). Hasil pencarian dari semua sumber akan ditampilkan dalam daftar bernomor:
+```text
+Multiple results found for 'solo leveling':
+  1. [Shinigami] Solo Leveling (Ongoing)
+  2. [Softkomik] Solo Leveling (Ongoing)
+  3. [Shinigami] Solo Leveling : Ragnarok (Unknown)
+  ...
+
+Select comic (1-9, or 0 to cancel):
+```
+Pilih nomor komik yang diinginkan (atau masukkan `0` untuk batal), lalu pilih opsi download chapter.
 
 ### 2. Mode Langsung (CLI)
 
 Anda bisa menggunakan flag `--chapter` atau `--chapters` secara bergantian untuk single maupun rentang chapter.
 
-#### Softkomik.co
-
 ```bash
-# Menggunakan URL komik
-py -m wmdl https://softkomik.co/melting-slowly-bahasa-indonesia --chapter 0
+# Menggunakan URL komik (Softkomik atau Shinigami)
+py -m wmdl https://softkomik.app/melting-slowly-bahasa-indonesia --chapter 0
 
-# Menggunakan Judul
+# Menggunakan Judul Komik
 py -m wmdl "Melting Slowly" --chapter 0
 
 # Download rentang chapter (range)
-py -m wmdl "Melting Slowly" --chapter 0-5
+py -m wmdl "Solo Leveling" --chapters 1-10
+
+# Download chapter tertentu
 py -m wmdl "Melting Slowly" --chapters 0,1,5
 
 # Download semua chapter yang tersedia
-py -m wmdl "Melting Slowly" --all
-```
-
-#### Shinigami.id
-
-```bash
-# Menggunakan URL komik
-py -m wmdl https://app.shinigami.asia/series/solo-leveling --chapter 1
-
-# Menggunakan ID / Slug
-py -m wmdl solo-leveling --chapter 1
-
-# Download rentang chapter
-py -m wmdl solo-leveling --chapters 1-10
-
-# Download semua chapter
-py -m wmdl solo-leveling --all
+py -m wmdl "Solo Leveling" --all
 ```
 
 ## Struktur Hasil Unduhan
