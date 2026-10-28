@@ -579,6 +579,12 @@ Examples:
         logger.exception("Unexpected error")
         print(f"\nError: {e}")
         sys.exit(1)
+    finally:
+        try:
+            from .bypass import cf_bypasser
+            asyncio.run(cf_bypasser.cleanup())
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

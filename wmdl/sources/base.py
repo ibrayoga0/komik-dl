@@ -111,6 +111,44 @@ class BaseSource(abc.ABC):
                 default_headers.update(headers)
             self.session = aiohttp.ClientSession(timeout=timeout, headers=default_headers)
 
+    async def fetch_html(self, url: str, headers: Optional[dict] = None, allow_cf_bypass: bool = True) -> str:
+        """
+        Fetch HTML content from a URL with automatic Cloudflare challenge detection and bypass.
+        """
+        await self._ensure_session(headers)
+        if not self.session:
+            raise Exception("Session initialization failed")
+
+        from ..bypass import is_cloudflare_challenge, cf_bypasser
+
+        # Apply cached cookies if available
+        cached = cf_bypasser.get_cached_cookies(url)
+        req_headers = dict(headers or {})
+        if cached:
+            cookies, ua = cached
+            for k, v in cookies.items():
+                self.session.cookie_jar.update_cookies({k: v})
+            if ua:
+                req_headers["User-Agent"] = ua
+
+        async with self.session.get(url, headers=req_headers if req_headers else None) as resp:
+            text = await resp.text()
+            if resp.status == 200:
+                return text
+
+            # Check if blocked by Cloudflare anti-bot challenge
+            if allow_cf_bypass and is_cloudflare_challenge(resp.status, text, dict(resp.headers)):
+                bypassed_html = await cf_bypasser.fetch_html(url)
+                if bypassed_html:
+                    cached_fresh = cf_bypasser.get_cached_cookies(url)
+                    if cached_fresh:
+                        fresh_cookies, _ = cached_fresh
+                        for k, v in fresh_cookies.items():
+                            self.session.cookie_jar.update_cookies({k: v})
+                    return bypassed_html
+
+            raise Exception(f"HTTP {resp.status} fetching {url}")
+
     async def close(self):
         """Close HTTP session"""
         if self.session and not self.session.closed:

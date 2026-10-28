@@ -1,13 +1,14 @@
 # wmdl (Komik Downloader)
 
-CLI tool berbasis Python untuk mencari dan mengunduh chapter komik/manhwa dari berbagai sumber (Shinigami, Softkomik, Komiku, dan sumber lainnya di masa mendatang) langsung ke komputer tanpa memerlukan browser.
+CLI tool berbasis Python untuk mencari dan mengunduh chapter komik/manhwa dari berbagai sumber (Shinigami, Softkomik, Komiku, MyNimeku, Komik Station, dan sumber lainnya di masa mendatang) langsung ke komputer tanpa memerlukan browser.
 
 ## Fitur
 
 - **Pencarian Multi-Sumber (Unified Search)**: Cari judul komik secara serentak di semua sumber website dan pilih sumber yang diinginkan dari daftar hasil pencarian.
 - **Arsitektur Modular Terstruktur (`wmdl/sources/`)**: Masing-masing source terisolasi dalam provider terpisah (`BaseSource`), memudahkan penambahan provider baru atau perbaikan di masa mendatang tanpa mengubah core engine.
+- **Bypass Proteksi Otomatis (Cloudflare WAF)**: Otomatis mendeteksi dan menyelesaikan tantangan Cloudflare (Turnstile / IUAM) via modul bypasser terintegrasi agar pengambilan data tetap stabil.
+- **Filter Khusus Anime/Komik**: Pada sumber hibrida seperti MyNimeku, hasil anime disaring otomatis sehingga hanya menyajikan komik/manga.
 - **Ekstraksi Cepat & Otomatis**: Memanfaatkan API langsung, HTMX endpoint, dan SSR data (termasuk auto-decrypt payload `_stk` pada Softkomik).
-- **Tanpa Browser & API Key**: Berjalan ringan langsung melalui HTTP/asyncio tanpa headless browser ataupun setup akun.
 - **Fleksibel**: Download single chapter, rentang chapter (`1-10` atau `1,3,5`), atau seluruh chapter sekaligus.
 - **Resume & Skip**: Otomatis melewati gambar yang sudah berhasil diunduh sebelumnya.
 - **Batal Bersih**: Pilihan `0` pada menu seleksi untuk membatalkan proses kapan saja tanpa error.
@@ -19,6 +20,8 @@ CLI tool berbasis Python untuk mencari dan mengunduh chapter komik/manhwa dari b
 | **Shinigami** | [app.shinigami.asia](https://app.shinigami.asia) | 🟢 Aktif |
 | **Softkomik** | [softkomik.app](https://softkomik.app) / [softkomik.co](https://softkomik.co) | 🟢 Aktif |
 | **Komiku** | [komiku.org](https://komiku.org) | 🟢 Aktif |
+| **MyNimeku** | [mynimeku.com](https://www.mynimeku.com) | 🟢 Aktif |
+| **Komik Station** | [komikstation.org](https://komikstation.org) | 🟢 Aktif |
 
 ## Instalasi
 
@@ -54,8 +57,10 @@ Pilih nomor komik yang diinginkan (atau masukkan `0` untuk batal), lalu pilih op
 Anda bisa menggunakan flag `--chapter` atau `--chapters` secara bergantian untuk single maupun rentang chapter.
 
 ```bash
-# Menggunakan URL komik (Komiku, Softkomik, atau Shinigami)
+# Menggunakan URL komik (Komiku, MyNimeku, Komik Station, Softkomik, atau Shinigami)
 py -m wmdl "https://komiku.org/manga/solo-leveling-id/" --chapter 1
+py -m wmdl "https://www.mynimeku.com/komik/solo-leveling/" --chapter 1
+py -m wmdl "https://komikstation.org/manga/solo-leveling-ragnarok/" --chapter 1
 py -m wmdl "https://softkomik.app/melting-slowly-bahasa-indonesia" --chapter 0
 
 # Menggunakan Judul Komik

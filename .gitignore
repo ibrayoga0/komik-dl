@@ -37,6 +37,7 @@ Thumbs.db
 # Project specific
 downloads/
 shinigami-api/
+clv/
 .agent/
 .agents/
 debug_screenshot.png
