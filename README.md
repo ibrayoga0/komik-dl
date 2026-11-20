@@ -17,7 +17,7 @@ CLI tool berbasis Python untuk mencari dan mengunduh chapter komik/manhwa dari b
 
 | Sumber | Website | Status |
 | :--- | :--- | :---: |
-| **Shinigami** | [app.shinigami.asia](https://app.shinigami.asia) | 🟢 Aktif |
+| **Shinigami** | [s1.shinigami.mx](https://s1.shinigami.mx) | 🟢 Aktif |
 | **Softkomik** | [softkomik.app](https://softkomik.app) / [softkomik.co](https://softkomik.co) | 🟢 Aktif |
 | **Komiku** | [komiku.org](https://komiku.org) | 🟢 Aktif |
 | **MyNimeku** | [mynimeku.com](https://www.mynimeku.com) | 🟢 Aktif |

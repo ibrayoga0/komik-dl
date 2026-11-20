@@ -17,7 +17,7 @@ UUID_REGEX = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 
 
 class ShinigamiSource(BaseSource):
-    """Source provider for Shinigami (https://app.shinigami.asia)"""
+    """Source provider for Shinigami (https://s1.shinigami.mx)"""
 
     name = "Shinigami"
     slug = "shinigami"
@@ -34,7 +34,9 @@ class ShinigamiSource(BaseSource):
             "Accept": "application/json",
             "DNT": "1",
             "Origin": self.base_url,
+            "Referer": f"{self.base_url}/",
             "Sec-GPC": "1",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "X-Requested-With": self._random_string(random.randint(10, 20))
         }
 
@@ -43,9 +45,12 @@ class ShinigamiSource(BaseSource):
         cleaned = url.strip()
         lower = cleaned.lower()
 
-        # 1. Full Shinigami URL: https://app.shinigami.asia/series/{id}
-        if "shinigami" in lower:
-            match = re.search(r'/series/([^/?]+)', cleaned)
+        # 1. Full Shinigami URL: https://s1.shinigami.mx/series/{id}
+        if "shinigami" in lower or "shngm" in lower:
+            match = re.search(r'/series/([0-9a-fA-F\-]+)', cleaned)
+            if match:
+                return True, match.group(1), True
+            match = re.search(r'/series/([^/?#]+)', cleaned)
             if match:
                 return True, match.group(1), True
             return True, cleaned, False
@@ -85,9 +90,8 @@ class ShinigamiSource(BaseSource):
             url = f"{self.api_url}/v1/manga/list"
             logger.debug(f"Searching Shinigami: {query}")
             params = {
-                'page': 1,
-                'page_size': 30,
-                'search': query
+                'q': query,
+                'limit': 30
             }
 
             async with self.session.get(url, params=params) as response:
@@ -110,7 +114,7 @@ class ShinigamiSource(BaseSource):
             for item in manga_list:
                 title = item.get('title', 'Unknown')
                 manga_id = item.get('manga_id', item.get('id', ''))
-                cover = item.get('cover_image_url', '')
+                cover = item.get('cover_image_url') or item.get('cover_portrait_url', '')
                 status = self._to_status(item.get('status', 0))
 
                 t_lower = title.lower()
@@ -159,11 +163,12 @@ class ShinigamiSource(BaseSource):
             raise Exception("Invalid response from API")
 
         manga_data = data['data']
+        cover = manga_data.get('cover_image_url') or manga_data.get('cover_portrait_url', '')
         return {
             'title': manga_data.get('title', 'Unknown'),
             'status': self._to_status(manga_data.get('status', 0)),
             'description': manga_data.get('description', ''),
-            'cover': manga_data.get('cover_image_url', ''),
+            'cover': cover,
             'manga_id': manga_id,
             'source': self.name,
         }
@@ -177,36 +182,44 @@ class ShinigamiSource(BaseSource):
         url = f"{self.api_url}/v1/chapter/{manga_id}/list"
         logger.debug(f"Fetching Shinigami chapter list: {url}")
 
-        async with self.session.get(url, params={'page_size': 3000}) as response:
-            if response.status != 200:
-                raise Exception(f"API returned status {response.status}")
-            data = await response.json()
-
-        chapter_list = []
-        if isinstance(data, list):
-            chapter_list = data
-        elif 'chapter_list' in data and isinstance(data['chapter_list'], list):
-            chapter_list = data['chapter_list']
-        elif 'data' in data and isinstance(data['data'], list):
-            chapter_list = data['data']
-
-        if not chapter_list:
-            return []
-
         chapters = []
-        for item in chapter_list:
-            raw_num = str(item.get('chapter_number', item.get('number', ''))).replace('.0', '')
-            clean_num = raw_num.lstrip('0') or '0'
-            chapter_title = item.get('chapter_title', item.get('title', ''))
+        cursor = None
+        while True:
+            params = {'limit': 1000}
+            if cursor:
+                params['cursor'] = cursor
 
-            chapters.append({
-                'chapter_id': item.get('chapter_id', item.get('id', '')),
-                'number': clean_num,
-                'raw_number': raw_num,
-                'title': chapter_title,
-                'name': f"Chapter {raw_num}" + (f" - {chapter_title}" if chapter_title else ""),
-                'url': f"{self.base_url}/series/{manga_id}",
-            })
+            async with self.session.get(url, params=params) as response:
+                if response.status != 200:
+                    raise Exception(f"API returned status {response.status}")
+                data = await response.json()
+
+            if not data or 'data' not in data:
+                break
+
+            chapter_list = data.get('data', [])
+            if not isinstance(chapter_list, list) or not chapter_list:
+                break
+
+            for item in chapter_list:
+                raw_num = str(item.get('chapter_number', item.get('number', ''))).replace('.0', '')
+                clean_num = raw_num.lstrip('0') or '0'
+                chapter_title = item.get('chapter_title', item.get('title', ''))
+
+                chapters.append({
+                    'chapter_id': item.get('chapter_id', item.get('id', '')),
+                    'number': clean_num,
+                    'raw_number': raw_num,
+                    'title': chapter_title,
+                    'name': f"Chapter {raw_num}" + (f" - {chapter_title}" if chapter_title else ""),
+                    'url': f"{self.base_url}/series/{manga_id}",
+                })
+
+            meta = data.get('meta', {})
+            if meta.get('has_next') and meta.get('next_cursor'):
+                cursor = meta['next_cursor']
+            else:
+                break
 
         logger.info(f"Found {len(chapters)} chapters on Shinigami")
         return chapters
@@ -229,9 +242,14 @@ class ShinigamiSource(BaseSource):
             raise Exception("Invalid response from API")
 
         chapter_data = data['data']
+        base_url = chapter_data.get('base_url') or self.cdn_url
+
         chapter_pages = []
-        if 'chapter' in chapter_data and 'data' in chapter_data['chapter']:
-            chapter_pages = chapter_data['chapter']['data']
+        path = ''
+        if 'chapter' in chapter_data and isinstance(chapter_data['chapter'], dict):
+            ch_info = chapter_data['chapter']
+            path = ch_info.get('path', '')
+            chapter_pages = ch_info.get('data', [])
         elif 'data' in chapter_data and isinstance(chapter_data['data'], list):
             chapter_pages = chapter_data['data']
 
@@ -244,9 +262,15 @@ class ShinigamiSource(BaseSource):
                 image_url = page.get('image_url') or page.get('url') or page.get('path')
 
             if image_url:
-                if not image_url.startswith('http'):
-                    image_url = f"{self.cdn_url}/{image_url.lstrip('/')}"
-                image_urls.append(image_url)
+                if image_url.startswith('http'):
+                    image_urls.append(image_url)
+                else:
+                    clean_path = path.strip('/')
+                    clean_page = str(image_url).lstrip('/')
+                    if clean_path:
+                        image_urls.append(f"{base_url.rstrip('/')}/{clean_path}/{clean_page}")
+                    else:
+                        image_urls.append(f"{base_url.rstrip('/')}/{clean_page}")
 
         logger.info(f"Found {len(image_urls)} pages on Shinigami")
         return image_urls

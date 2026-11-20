@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 
 # Shinigami API configuration
-BASE_URL = "https://app.shinigami.asia"
-API_URL = "https://api.shngm.io"
-CDN_URL = "https://storage.shngm.id"
+BASE_URL = "https://s1.shinigami.mx"
+API_URL = "https://api.shinigami.io"
+CDN_URL = "https://cdn.shinigami.gg"
 
 # Download settings
 DEFAULT_DOWNLOAD_DIR = Path("downloads")

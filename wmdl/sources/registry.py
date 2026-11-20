@@ -86,7 +86,9 @@ class SourceRegistry:
             return "https://www.mynimeku.com/"
         elif "komikstation" in low or "klikcdn" in low:
             return "https://komikstation.org/"
-        return "https://app.shinigami.asia/"
+        elif "shinigami" in low or "shngm" in low:
+            return "https://s1.shinigami.mx/"
+        return "https://s1.shinigami.mx/"
 
 
 # Global registry instance
