@@ -10,6 +10,7 @@ from .softkomik import SoftkomikSource
 from .komiku import KomikuSource
 from .mynimeku import MyNimekuSource
 from .komikstation import KomikStationSource
+from .manhwaindo import ManhwaIndoSource
 
 
 class SourceRegistry:
@@ -23,6 +24,7 @@ class SourceRegistry:
         self.register(KomikuSource)
         self.register(MyNimekuSource)
         self.register(KomikStationSource)
+        self.register(ManhwaIndoSource)
 
     def register(self, source_cls: Type[BaseSource]):
         """Register a new comic source class"""
@@ -88,6 +90,8 @@ class SourceRegistry:
             return "https://komikstation.org/"
         elif "shinigami" in low or "shngm" in low:
             return "https://s1.shinigami.mx/"
+        elif "gmbr.pro" in low or "manhwaindo" in low:
+            return "https://www.manhwaindo.my/"
         return "https://s1.shinigami.mx/"
 
 

@@ -8,6 +8,7 @@ from .softkomik import SoftkomikSource
 from .komiku import KomikuSource
 from .mynimeku import MyNimekuSource
 from .komikstation import KomikStationSource
+from .manhwaindo import ManhwaIndoSource
 from .registry import registry, SourceRegistry
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "KomikuSource",
     "MyNimekuSource",
     "KomikStationSource",
+    "ManhwaIndoSource",
     "registry",
     "SourceRegistry",
 ]

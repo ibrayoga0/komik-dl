@@ -22,6 +22,7 @@ CLI tool berbasis Python untuk mencari dan mengunduh chapter komik/manhwa dari b
 | **Komiku** | [komiku.org](https://komiku.org) | 🟢 Aktif |
 | **MyNimeku** | [mynimeku.com](https://www.mynimeku.com) | 🟢 Aktif |
 | **Komik Station** | [komikstation.org](https://komikstation.org) | 🟢 Aktif |
+| **ManhwaIndo** | [manhwaindo.my](https://www.manhwaindo.my) | 🟢 Aktif |
 
 ## Instalasi
 

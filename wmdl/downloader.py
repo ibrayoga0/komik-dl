@@ -68,7 +68,10 @@ class ImageDownloader:
         logger.info(f"Downloading chapter {chapter_number} ({len(image_urls)} images) to {chapter_path}")
         
         # Download images
-        async with aiohttp.ClientSession() as session:
+        session_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        }
+        async with aiohttp.ClientSession(headers=session_headers) as session:
             tasks = []
             for idx, url in enumerate(image_urls, 1):
                 task = self._download_image(
