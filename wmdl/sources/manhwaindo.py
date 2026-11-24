@@ -16,23 +16,26 @@ logger = logging.getLogger(__name__)
 
 # Domain patterns for ad/gambling images — NEVER download these
 _AD_DOMAINS = (
-    "upload.gmbr.pro",          # ad banner CDN (manga pages come from imgx-id.gmbr.pro)
     "i.88cdn.cloud",            # gambling banner CDN
     "prizefamily.com",          # ad script domain
 )
 
-# Gambling/judi keywords that may appear in image paths from ad CDNs
+# Gambling/judi/ad keywords that may appear in image paths from ad networks
 _GAMBLING_KEYWORDS = (
     "judi", "slot", "casino", "poker", "togel", "gacor", "maxwin",
     "bandar", "sigacor", "pentaslot", "kaikoslot", "hokidewa", "macaudewa",
     "judi89", "indo666", "arab777", "cina777", "ratu89", "gaza88", "rusia777",
-    "iklan", "banner-iklan", "bm-slot",
+    "iklan", "banner", "bm-slot", "728x90", "720x90", "300x250",
+    "wongso", "momoplay", "mamba", "zeus",
 )
 
 
 def _is_ad_image(url: str) -> bool:
     """Return True if url looks like an ad/gambling banner."""
     low = url.lower()
+    # Ad/gambling banners are commonly animated GIFs; manga pages are jpg/png/webp
+    if low.endswith(".gif") or ".gif?" in low:
+        return True
     if any(domain in low for domain in _AD_DOMAINS):
         return True
     if any(kw in low for kw in _GAMBLING_KEYWORDS):
@@ -42,7 +45,16 @@ def _is_ad_image(url: str) -> bool:
 
 def _is_manga_page(url: str) -> bool:
     """Return True only if url is a genuine manga page image."""
-    return "manga-images" in url
+    low = url.lower()
+    if _is_ad_image(url):
+        return False
+    # Must have an image extension
+    if not re.search(r'\.(?:jpe?g|png|webp)(?:\?.*)?$', low):
+        return False
+    # Exclude site logos, favicons, avatars
+    if any(x in low for x in ["logo", "favicon", "cropped-", "avatar"]):
+        return False
+    return True
 
 
 class ManhwaIndoSource(BaseSource):
@@ -306,22 +318,33 @@ class ManhwaIndoSource(BaseSource):
             stage_m = re.search(r'class=["\']reader-area["\'][^>]*>(.*?)(?:</div>\s*</div>|<footer)', html_text, re.DOTALL | re.I)
         reader_html = stage_m.group(1) if stage_m else html_text
 
-        # Find all <img src="..."> tags in the reader area
-        all_srcs = re.findall(r'<img[^>]+src=["\'](https?://[^"\']+)["\']', reader_html, re.I)
+        # Find all <img ...> tags in the reader area
+        img_tags = re.findall(r'<img[^>]+>', reader_html, re.I)
 
         # Filter: keep only genuine manga page images; skip ads/gambling
         image_urls: List[str] = []
         seen: set = set()
-        for src in all_srcs:
-            src = src.strip()
-            if src in seen:
+        for tag in img_tags:
+            # Skip tags with ad indicators in alt or class
+            alt_m = re.search(r'alt=["\'](.*?)["\']', tag, re.I)
+            if alt_m and any(kw in alt_m.group(1).lower() for kw in ("iklan", "advertisement", "slot", "judi", "banner")):
                 continue
-            if _is_ad_image(src):
-                logger.debug(f"Skipping ad/gambling image: {src}")
+
+            # Extract src or fallback to data-src / data-lazy-src
+            src = None
+            for attr in ("src", "data-src", "data-lazy-src"):
+                m = re.search(rf'{attr}=["\'](https?://[^"\']+)["\']', tag, re.I)
+                if m:
+                    src = m.group(1).strip()
+                    break
+
+            if not src or src in seen:
                 continue
+
             if not _is_manga_page(src):
-                logger.debug(f"Skipping non-manga-page image: {src}")
+                logger.debug(f"Skipping non-manga image: {src}")
                 continue
+
             seen.add(src)
             image_urls.append(src)
 
